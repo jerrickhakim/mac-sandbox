@@ -1,0 +1,23 @@
+# Source
+src/
+api/
+tests/
+
+# Config
+tsconfig.json
+image/
+scripts/
+
+# Development
+.dev/
+node_modules/
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Misc
+.gitignore
+.internal.md
+package-lock.json

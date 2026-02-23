@@ -1,0 +1,613 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Mac Sandbox API",
+    "version": "1.0.0",
+    "description": "API for creating and managing sandboxes on Mac using Apple Containers and Cloudflare Tunnels"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:4000",
+      "description": "Local development server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Bearer token authentication. Get a token by confirming a pairing code via /pairing/confirm"
+      }
+    },
+    "schemas": {
+      "SandboxConfig": {
+        "type": "object",
+        "properties": {
+          "tunnel": {
+            "type": "boolean",
+            "description": "Enable Cloudflare tunnel",
+            "example": true
+          },
+          "cpus": {
+            "type": "number",
+            "description": "Number of CPUs to allocate",
+            "example": 2
+          },
+          "storage": {
+            "type": "string",
+            "enum": ["1G", "5G", "10G", "15G", "20G", "25G", "30G", "32G", "64G", "128G"],
+            "description": "Storage size for the sandbox",
+            "example": "10G"
+          },
+          "memory": {
+            "type": "string",
+            "description": "Memory limit",
+            "example": "4G"
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "NODE_ENV": "development"
+            }
+          }
+        }
+      },
+      "VolumeCreate": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Volume name",
+            "example": "my-volume"
+          },
+          "size": {
+            "type": "string",
+            "description": "Volume size (e.g., 10G, 500M)",
+            "example": "10G"
+          },
+          "label": {
+            "type": "string",
+            "description": "Volume label",
+            "example": "my-label"
+          }
+        }
+      },
+      "VolumeInfo": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "my-volume"
+          },
+          "driver": {
+            "type": "string",
+            "example": "local"
+          },
+          "mountpoint": {
+            "type": "string",
+            "example": "/var/lib/volumes/my-volume"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ExecRequest": {
+        "type": "object",
+        "required": ["command"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Command to execute",
+            "example": "ls"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": ["-la", "/workspace"]
+          },
+          "timeout": {
+            "type": "number",
+            "description": "Timeout in milliseconds",
+            "example": 30000
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "details": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "Authentication and pairing endpoints"
+    },
+    {
+      "name": "Sandbox",
+      "description": "Sandbox container management"
+    },
+    {
+      "name": "Volume",
+      "description": "Volume management"
+    },
+    {
+      "name": "Admin",
+      "description": "Administrative operations"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "tags": ["Health"],
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "version": {
+                      "type": "string",
+                      "example": "1.0.0"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pairing/confirm": {
+      "post": {
+        "summary": "Confirm pairing code",
+        "tags": ["Auth"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["code"],
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "example": "ABC123"
+                  },
+                  "deviceName": {
+                    "type": "string",
+                    "example": "My Laptop"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Pairing successful",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or expired code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sandbox/create": {
+      "post": {
+        "summary": "Create a new sandbox",
+        "tags": ["Sandbox"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SandboxConfig"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Sandbox created successfully"
+          },
+          "500": {
+            "description": "Server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sandbox/list": {
+      "get": {
+        "summary": "List all sandboxes",
+        "tags": ["Sandbox"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of sandboxes"
+          }
+        }
+      }
+    },
+    "/sandbox/{id}": {
+      "get": {
+        "summary": "Get sandbox details",
+        "tags": ["Sandbox"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sandbox details"
+          },
+          "404": {
+            "description": "Sandbox not found"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Stop and remove a sandbox",
+        "tags": ["Sandbox"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sandbox stopped successfully"
+          },
+          "404": {
+            "description": "Sandbox not found"
+          }
+        }
+      }
+    },
+    "/sandbox/{id}/exec": {
+      "post": {
+        "summary": "Execute command in sandbox",
+        "tags": ["Sandbox"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Command executed"
+          },
+          "404": {
+            "description": "Sandbox not found"
+          }
+        }
+      }
+    },
+    "/volume/create": {
+      "post": {
+        "summary": "Create a new volume",
+        "tags": ["Volume"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VolumeCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Volume created successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "volume": {
+                      "$ref": "#/components/schemas/VolumeInfo"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/volume/list": {
+      "get": {
+        "summary": "List all volumes",
+        "tags": ["Volume"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of volumes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "volumes": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/VolumeInfo"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/volume/{name}": {
+      "get": {
+        "summary": "Get volume details",
+        "tags": ["Volume"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "my-volume"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Volume details"
+          },
+          "404": {
+            "description": "Volume not found"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a volume",
+        "tags": ["Volume"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "example": "my-volume"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Volume deleted successfully"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/volume/batch-delete": {
+      "post": {
+        "summary": "Delete multiple volumes",
+        "tags": ["Volume"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["names"],
+                "properties": {
+                  "names": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "example": ["volume1", "volume2"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Volumes deleted successfully"
+          },
+          "400": {
+            "description": "Invalid request"
+          }
+        }
+      }
+    },
+    "/admin/sandboxes": {
+      "get": {
+        "summary": "View all sandboxes",
+        "tags": ["Admin"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of all sandboxes"
+          }
+        }
+      }
+    },
+    "/admin/kill-all": {
+      "post": {
+        "summary": "Kill all running sandboxes",
+        "tags": ["Admin"],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All sandboxes killed"
+          }
+        }
+      }
+    }
+  }
+}

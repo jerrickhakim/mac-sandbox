@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+.internal.md
+# Build output
+dist/
+
+# Development state
+.dev/
+
+# macOS
+.DS_Store
+
+# Environment variables
+.env
+.env.local
