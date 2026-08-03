@@ -9,6 +9,7 @@ import adminRoutes from "./routes/admin.js";
 import authRoutes from "./routes/auth.js";
 import sandboxRoutes from "./routes/sandbox.js";
 import volumeRoutes from "./routes/volume.js";
+import { createVercelSandboxApi } from "./vercel/app.js";
 import { getContainerManager } from "./utils/container.js";
 import { getHostInfo } from "./utils/hostInfo.js";
 import log from "./utils/logger.js";
@@ -51,11 +52,15 @@ export function createServer(config: ServerConfig = {}) {
     description: "Bearer token. Get via /pairing/confirm",
   });
 
-  // Mount routes
+  // Mount original routes
   app.route("/", authRoutes);
   app.route("/sandbox", sandboxRoutes);
   app.route("/volume", volumeRoutes);
   app.route("/admin", adminRoutes);
+
+  // Mount Vercel-compatible API (v1)
+  const vercelApi = createVercelSandboxApi();
+  app.route("/", vercelApi);
 
   // OpenAPI documentation
   app.doc("/doc", {
